@@ -1,1 +1,1710 @@
+{
+    "recommendations": [
+        "dsznajder.es7-react-js-snippets"
+    ]
+}
 
+{
+    "prisma.pinToPrisma6": true
+}
+// ─────────────────────────────────────────────────────────────
+//  Header Component
+// ─────────────────────────────────────────────────────────────
+
+import React from 'react';
+import type { SessionUser } from '../../../types.d';
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
+  }
+}
+
+interface HeaderProps {
+  user: SessionUser;
+  onLogout: () => void;
+}
+
+type StyleObject = Record<string, string | number | undefined>;
+
+const roleTagStyle: Record<string, StyleObject> = {
+  student:   { background: '#f5c518', color: '#0a1f44' },
+  staff:     { background: '#4ade80', color: '#14532d' },
+  professor: { background: '#fb923c', color: '#431407' },
+};
+
+export default function Header({ user, onLogout }: HeaderProps) {
+  return (
+    <header
+      style={{
+        background: 'linear-gradient(135deg,#0a1f44 0%,#112358 100%)',
+        color: '#fff',
+        display: 'flex',
+        padding: '0 2rem',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxShadow: '0 2px 8px rgba(0,0,0,.25)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+        minHeight: 64,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            background: '#f5c518',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 800,
+            fontSize: 13,
+            color: '#0a1f44',
+            flexShrink: 0,
+          }}
+        >
+          ICCT
+        </div>
+
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '.4px' }}>
+            ICCT Colleges — Attendance System
+          </div>
+
+          <div style={{ fontSize: 11, opacity: 0.7, letterSpacing: '.3px' }}>
+            Computer Studies Department
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div
+          style={{
+            background: 'rgba(255,255,255,.12)',
+            border: '1px solid rgba(255,255,255,.2)',
+            borderRadius: 8,
+            padding: '6px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '2px 7px',
+              borderRadius: 4,
+              textTransform: 'uppercase',
+              letterSpacing: '.5px',
+              ...roleTagStyle[user.role],
+            }}
+          >
+            {user.role}
+          </span>
+
+          <span style={{ fontWeight: 600, fontSize: 13 }}>
+            {user.name}
+          </span>
+        </div>
+
+        <button
+          onClick={onLogout}
+          style={{
+            background: 'rgba(220,38,38,.75)',
+            border: 'none',
+            color: '#fff',
+            padding: '7px 16px',
+            borderRadius: 7,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          ⏏ Logout
+        </button>
+      </div>
+    </header>
+  );
+}
+// ─────────────────────────────────────────────────────────────
+//  useAttendance Hook
+// ─────────────────────────────────────────────────────────────
+
+import { useState, useEffect, useCallback } from 'react';
+import type { AttendanceRecord, AttendanceStats, AttendanceStatus, Role } from '../../../types.d';
+import { fetchAttendance, fetchStats, markAttendance as markApi } from '../upload';
+
+export interface UseAttendanceOptions {
+  tab: 'all' | Role;
+  search: string;
+  status: AttendanceStatus | '';
+}
+
+export function useAttendance({ tab, search, status }: UseAttendanceOptions) {
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [stats,   setStats]   = useState<AttendanceStats | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [recRes, statsRes] = await Promise.all([
+        fetchAttendance({ role: tab, search, status }),
+        fetchStats(),
+      ]);
+      setRecords(recRes.records);
+      setStats(statsRes);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }, [tab, search, status]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const markRecord = useCallback(async (id: string, newStatus: AttendanceStatus) => {
+    try {
+      const updated = await markApi(id, newStatus);
+      setRecords(prev => prev.map(r => r.id === id ? { ...r, status: updated.status } : r));
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to update status');
+    }
+  }, []);
+
+  return { records, stats, loading, error, reload: load, markRecord };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — Animation Helpers (animations.ts)
+// ─────────────────────────────────────────────────────────────
+
+import React from 'react';
+
+/** Injects global CSS keyframes into the document <head> once */
+export function injectKeyframes(): void {
+  const doc = typeof globalThis !== 'undefined' ? (globalThis as any).document : undefined;
+  if (!doc || doc.getElementById('icct-keyframes')) return;
+  const style = doc.createElement('style');
+  style.id = 'icct-keyframes';
+  style.textContent = `
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-16px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%       { transform: translateX(-8px); }
+      40%       { transform: translateX(8px); }
+      60%       { transform: translateX(-6px); }
+      80%       { transform: translateX(6px); }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(30px) scale(0.95); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes toastOut {
+      from { opacity: 1; transform: translateY(0) scale(1); }
+      to   { opacity: 0; transform: translateY(30px) scale(0.95); }
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// ── Animation style objects (use as React style props) ───────
+
+export const fadeIn: React.CSSProperties = {
+  animation: 'fadeIn 0.3s ease forwards',
+};
+
+export const slideIn: React.CSSProperties = {
+  animation: 'slideIn 0.25s ease forwards',
+};
+
+export const shake: React.CSSProperties = {
+  animation: 'shake 0.4s ease',
+};
+
+export const pulse: React.CSSProperties = {
+  animation: 'pulse 1.5s ease infinite',
+};
+
+export const spin: React.CSSProperties = {
+  animation: 'spin 1s linear infinite',
+  display: 'inline-block',
+};
+
+// ── Transition presets ────────────────────────────────────────
+
+export const transitions = {
+  fast:   'all 0.15s ease',
+  normal: 'all 0.25s ease',
+  slow:   'all 0.4s ease',
+} as const;
+
+// ── Color tokens (matches CSS vars in the HTML version) ──────
+
+export const colors = {
+  navy:    '#0a1f44',
+  navy2:   '#112358',
+  gold:    '#f5c518',
+  blue:    '#1565c0',
+  blue2:   '#1976d2',
+  green:   '#15803d',
+  green2:  '#16a34a',
+  orange:  '#c2410c',
+  orange2: '#ea580c',
+  red:     '#dc2626',
+  light:   '#f4f6fb',
+  white:   '#ffffff',
+  gray:    '#64748b',
+  lgray:   '#e2e8f0',
+  dgray:   '#334155',
+} as const;
+
+export type ColorToken = keyof typeof colors;
+
+// ── Role-based color maps ────────────────────────────────────
+
+export const roleColors = {
+  student: {
+    primary:    colors.blue,
+    secondary:  colors.blue2,
+    accent:     colors.gold,
+    accentText: colors.navy,
+    bg:         'rgba(21,101,192,0.4)',
+  },
+  staff: {
+    primary:    '#14532d',
+    secondary:  colors.green2,
+    accent:     '#4ade80',
+    accentText: '#14532d',
+    bg:         'rgba(22,163,74,0.3)',
+  },
+  professor: {
+    primary:    '#431407',
+    secondary:  colors.orange2,
+    accent:     '#fb923c',
+    accentText: '#431407',
+    bg:         'rgba(234,88,12,0.3)',
+  },
+} as const;
+
+import React from 'react';
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — Root App Component (app.tsx)
+// ─────────────────────────────────────────────────────────────
+
+import React, { useState, useCallback } from 'react';
+import type { Role, SessionUser } from '../../types.d';
+import { clearSession, saveSession } from './auth';
+import { clearSession as clearApiSession } from './upload';
+
+// ── Page imports ─────────────────────────────────────────────
+import RoleSelectionPage from './pages/RoleSelectionPage';
+import PinGatePage       from './pages/PinGatePage';
+import CheckInPage       from './pages/CheckInPage';
+import DashboardPage     from './pages/DashboardPage';
+import Header            from './components/Header';
+
+export type AppPage = 'role' | 'pin' | 'checkin' | 'dashboard';
+
+export interface AppContext {
+  currentRole: Role | null;
+  sessionUser: SessionUser | null;
+  navigateTo: (page: AppPage, role?: Role) => void;
+  onCheckInSuccess: (user: SessionUser, token: string) => void;
+  logout: () => void;
+}
+
+export default function App() {
+  const [page, setPage]               = useState<AppPage>('role');
+  const [currentRole, setCurrentRole] = useState<Role | null>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+
+  const navigateTo = useCallback((nextPage: AppPage, role?: Role) => {
+    if (role) setCurrentRole(role);
+    setPage(nextPage);
+  }, []);
+
+  const onCheckInSuccess = useCallback((user: SessionUser, token: string) => {
+    saveSession(token, user);
+    setSessionUser(user);
+    setPage('dashboard');
+  }, []);
+
+  const logout = useCallback(() => {
+    clearSession();
+    clearApiSession();
+    setSessionUser(null);
+    setCurrentRole(null);
+    setPage('role');
+  }, []);
+
+  const ctx: AppContext = { currentRole, sessionUser, navigateTo, onCheckInSuccess, logout };
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f4f6fb', fontFamily: "'Segoe UI', sans-serif" }}>
+      {/* Header — visible only on dashboard */}
+      {page === 'dashboard' && sessionUser && (
+        <Header user={sessionUser} onLogout={logout} />
+      )}
+
+      {/* Page Router */}
+      {page === 'role'      && <RoleSelectionPage ctx={ctx} />}
+      {page === 'pin'       && currentRole && <PinGatePage ctx={ctx} />}
+      {page === 'checkin'   && currentRole && <CheckInPage ctx={ctx} />}
+      {page === 'dashboard' && sessionUser && <DashboardPage ctx={ctx} />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — Auth Helpers (auth.ts)
+// ─────────────────────────────────────────────────────────────
+
+import type { Role, SessionUser } from '../../types.d';
+
+const SESSION_KEY = 'icct_session_token';
+const USER_KEY    = 'icct_session_user';
+
+/** Decode JWT payload without verifying (client-side display only) */
+function decodeJwt(token: string): Record<string, unknown> | null {
+  try {
+    const payload = token.split('.')[1];
+    return JSON.parse(atob(payload));
+  } catch {
+    return null;
+  }
+}
+
+/** Save session token and user info after check-in */
+export function saveSession(token: string, user: SessionUser): void {
+  sessionStorage.setItem(SESSION_KEY, token);
+  sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+/** Load saved session user */
+export function loadSessionUser(): SessionUser | null {
+  try {
+    const raw = sessionStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as SessionUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Check if the session token is still valid (not expired) */
+export function isSessionValid(): boolean {
+  const token = sessionStorage.getItem(SESSION_KEY);
+  if (!token) return false;
+  const payload = decodeJwt(token);
+  if (!payload || typeof payload.exp !== 'number') return false;
+  return payload.exp * 1000 > Date.now();
+}
+
+/** Clear all session data */
+export function clearSession(): void {
+  sessionStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(USER_KEY);
+}
+
+/** Get session token */
+export function getSessionToken(): string | null {
+  return sessionStorage.getItem(SESSION_KEY);
+}
+
+// ── Access control helpers ───────────────────────────────────
+
+/** Returns which tab keys a role is allowed to see */
+export function getAllowedTabs(role: Role): Array<'all' | Role> {
+  if (role === 'professor') return ['all', 'student', 'staff', 'professor'];
+  if (role === 'staff')     return ['staff'];
+  return ['student'];
+}
+
+/** Returns whether a role can mark attendance */
+export function canMark(role: Role): boolean {
+  return role === 'professor';
+}
+
+/** Returns whether a role requires a PIN to enter its portal */
+export function requiresPin(role: Role): boolean {
+  return role === 'staff' || role === 'professor';
+}
+
+/** Returns the scope description shown in the dashboard chip */
+export function getScopeDescription(role: Role): string {
+  if (role === 'professor') {
+    return '👁 Full Access — you can view all student, staff, and professor records';
+  }
+  if (role === 'staff') {
+    return '🗂 Staff View — you can only view your own staff attendance records';
+  }
+  return '🎓 Student View — you can only view your own attendance records';
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — API Service (upload.ts)
+//  All HTTP calls to the backend live here.
+// ─────────────────────────────────────────────────────────────
+
+import type {
+  CheckInPayload, CheckInResponse,
+  PinVerifyPayload, PinVerifyResponse,
+  QrGenerateResponse, QrValidateResponse,
+  AttendanceRecord, AttendanceStats,
+  Role, AttendanceStatus,
+} from '../../types.d';
+
+const BASE_URL = (globalThis as any).VITE_API_URL || 'http://localhost:3001';
+const storage = (globalThis as any).sessionStorage as any;
+
+// Helper function to make API requests with JWT attached
+async function apiRequest<T>(
+  method: string,
+  endpoint: string,
+  payload?: unknown
+): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const token = storage?.getItem('icct_session_token');
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const options = {
+    method,
+    headers,
+  } as const;
+  if (payload) options.body = JSON.stringify(payload);
+
+  const response = await fetch(`${BASE_URL}${endpoint}`, options);
+  if (!response.ok) throw new Error(`API error: ${response.statusText}`);
+  return response.json();
+}
+
+// ── Auth ────────────────────────────────────────────────────
+
+/** Verify the staff or professor portal PIN */
+export async function verifyPin(payload: PinVerifyPayload): Promise<PinVerifyResponse> {
+  const { data } = await api.post<PinVerifyResponse>('/api/auth/verify-pin', payload);
+  return data;
+}
+
+// ── QR ──────────────────────────────────────────────────────
+
+/** Generate a new 30-minute QR token for a role */
+export async function generateQrToken(role: Role): Promise<QrGenerateResponse> {
+  const { data } = await api.post<QrGenerateResponse>('/api/qr/generate', { role });
+  return data;
+}
+
+/** Validate a scanned QR token */
+export async function validateQrToken(token: string): Promise<QrValidateResponse> {
+  const { data } = await api.get<QrValidateResponse>(`/api/qr/validate/${token}`);
+  return data;
+}
+
+// ── Check-In ────────────────────────────────────────────────
+
+/** Submit a check-in and receive a session JWT */
+export async function checkIn(payload: CheckInPayload): Promise<CheckInResponse> {
+  const { data } = await api.post<CheckInResponse>('/api/checkin', payload);
+  // Persist session token
+  sessionStorage.setItem('icct_session_token', data.sessionToken);
+  return data;
+}
+
+// ── Attendance Records ───────────────────────────────────────
+
+export interface FetchAttendanceParams {
+  role?: Role | 'all';
+  date?: string;
+  search?: string;
+  status?: AttendanceStatus | '';
+}
+
+/** Fetch attendance records (visibility controlled server-side by role) */
+export async function fetchAttendance(
+  params: FetchAttendanceParams = {}
+): Promise<{ records: AttendanceRecord[]; total: number }> {
+  const query: Record<string, string> = {};
+  if (params.role && params.role !== 'all') query.role = params.role;
+  if (params.date)   query.date   = params.date;
+  if (params.search) query.search = params.search;
+  if (params.status) query.status = params.status;
+  const { data } = await api.get('/api/attendance', { params: query });
+  return data;
+}
+
+/** Fetch aggregated stats for the current user's scope */
+export async function fetchStats(): Promise<AttendanceStats> {
+  const { data } = await api.get<AttendanceStats>('/api/attendance/stats');
+  return data;
+}
+
+/** Mark a record's status (professors only) */
+export async function markAttendance(
+  recordId: string,
+  status: AttendanceStatus
+): Promise<AttendanceRecord> {
+  const { data } = await api.patch(`/api/attendance/${recordId}/status`, { status });
+  return data.record;
+}
+
+/** Update a portal PIN (professors only) */
+export async function updatePin(role: 'staff' | 'professor', newPin: string): Promise<void> {
+  await api.put('/api/admin/pin', { role, newPin });
+}
+
+/** Clear session (logout) */
+export function clearSession(): void {
+  sessionStorage.removeItem('icct_session_token');
+}
+
+{
+  "name": "icct-attendance-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev":     "vite",
+    "build":   "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react":       "^18.2.0",
+    "react-dom":   "^18.2.0",
+    "react-router-dom": "^6.21.0",
+    "axios":       "^1.6.2",
+    "qrcode":      "^1.5.3"
+  },
+  "devDependencies": {
+    "@types/react":        "^18.2.45",
+    "@types/react-dom":    "^18.2.18",
+    "@types/qrcode":       "^1.5.5",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript":          "^5.3.2",
+    "vite":                "^5.0.8"
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — Backend Server (.backend.ts)
+// ─────────────────────────────────────────────────────────────
+
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
+
+dotenv.config();
+
+const app = express();
+const prisma = new PrismaClient();
+const PORT = process.env.PORT || 3001;
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+const QR_EXPIRY = parseInt(process.env.QR_EXPIRY_SECONDS || '1800', 10);
+
+// ── Middleware ────────────────────────────────────────────────
+app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173', credentials: true }));
+app.use(express.json());
+
+// ── Auth Middleware ───────────────────────────────────────────
+interface AuthRequest extends Request {
+  user?: { id: string; role: string; name: string };
+}
+
+function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role: string; name: string };
+    req.user = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// Role guard factory
+function requireRole(...roles: string[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Forbidden — insufficient permissions' });
+    }
+    next();
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ROUTES
+// ═══════════════════════════════════════════════════════════
+
+// ── Health check ──────────────────────────────────────────
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), system: 'ICCT-CSD Attendance' });
+});
+
+// ── PIN Verification ──────────────────────────────────────
+// POST /api/auth/verify-pin
+// Body: { role: 'staff' | 'professor', pin: '1234' }
+app.post('/api/auth/verify-pin', async (req, res) => {
+  const { role, pin } = req.body as { role: string; pin: string };
+  if (!role || !pin) return res.status(400).json({ error: 'role and pin are required' });
+  if (!['staff', 'professor'].includes(role)) {
+    return res.status(400).json({ error: 'PIN verification only applies to staff and professors' });
+  }
+  try {
+    const record = await prisma.portalPin.findUnique({ where: { role: role as any } });
+    if (!record) return res.status(404).json({ error: 'PIN not configured for this role' });
+    const valid = await bcrypt.compare(pin, record.pinHash);
+    if (!valid) return res.status(401).json({ error: 'Incorrect PIN' });
+    // Issue a short-lived JWT for portal access
+    const accessToken = jwt.sign({ role, pinVerified: true }, JWT_SECRET, { expiresIn: '2h' });
+    return res.json({ success: true, accessToken });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── QR Token Generation ───────────────────────────────────
+// POST /api/qr/generate
+// Body: { role: 'student' | 'staff' | 'professor' }
+app.post('/api/qr/generate', async (req, res) => {
+  const { role } = req.body as { role: string };
+  if (!['student', 'staff', 'professor'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+  try {
+    const token = uuidv4().replace(/-/g, '').toUpperCase();
+    const expiresAt = new Date(Date.now() + QR_EXPIRY * 1000);
+    await prisma.qrToken.create({ data: { token, role: role as any, expiresAt } });
+    return res.json({ token, expiresAt, expirySeconds: QR_EXPIRY });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to generate QR token' });
+  }
+});
+
+// ── QR Token Validation ───────────────────────────────────
+// GET /api/qr/validate/:token
+app.get('/api/qr/validate/:token', async (req, res) => {
+  const { token } = req.params;
+  try {
+    const record = await prisma.qrToken.findUnique({ where: { token } });
+    if (!record) return res.status(404).json({ valid: false, reason: 'Token not found' });
+    if (record.used)  return res.status(410).json({ valid: false, reason: 'Token already used' });
+    if (new Date() > record.expiresAt) return res.status(410).json({ valid: false, reason: 'Token expired' });
+    return res.json({ valid: true, role: record.role, expiresAt: record.expiresAt });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Check-In ──────────────────────────────────────────────
+// POST /api/checkin
+// Body: { name, idNumber, role, section, subject, date, qrToken? }
+app.post('/api/checkin', async (req, res) => {
+  const { name, idNumber, role, section, subject, date, qrToken } = req.body as {
+    name: string; idNumber: string; role: string;
+    section: string; subject: string; date: string; qrToken?: string;
+  };
+
+  if (!name || !idNumber || !role || !section || !subject || !date) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+  if (!['student', 'staff', 'professor'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+
+  try {
+    // Validate QR token if provided
+    if (qrToken) {
+      const qr = await prisma.qrToken.findUnique({ where: { token: qrToken } });
+      if (!qr || qr.used || new Date() > qr.expiresAt) {
+        return res.status(410).json({ error: 'QR token is invalid or expired' });
+      }
+      // Mark token as used
+      await prisma.qrToken.update({ where: { token: qrToken }, data: { used: true } });
+    }
+
+    // Upsert user (find or create by idNumber)
+    const user = await prisma.user.upsert({
+      where: { idNumber },
+      update: { name, section },
+      create: { name, idNumber, role: role as any, section },
+    });
+
+    // Create attendance record
+    const now = new Date();
+    const timeIn = now.toLocaleTimeString('en-PH', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+    });
+
+    const record = await prisma.attendanceRecord.create({
+      data: {
+        userId: user.id, role: role as any, section, subject, date, timeIn,
+        status: 'present', qrToken: qrToken || null,
+      },
+      include: { user: true },
+    });
+
+    // Issue session JWT
+    const sessionToken = jwt.sign(
+      { id: user.id, role: user.role, name: user.name },
+      JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+    );
+
+    return res.status(201).json({ success: true, record, sessionToken });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Check-in failed' });
+  }
+});
+
+// ── Get Attendance Records ────────────────────────────────
+// GET /api/attendance
+// Query: ?role=student|staff|professor&date=YYYY-MM-DD&search=name
+// Access: professors → all; staff → staff only; student → own only
+app.get('/api/attendance', authMiddleware, async (req: AuthRequest, res) => {
+  const { role: filterRole, date, search, status } = req.query as Record<string, string>;
+  const viewer = req.user!;
+
+  try {
+    // Build visibility filter based on viewer's role
+    let roleFilter: any = {};
+    if (viewer.role === 'student') {
+      // Students: only own records
+      roleFilter = { user: { idNumber: viewer.id } };
+    } else if (viewer.role === 'staff') {
+      // Staff: only staff records — NOT student or professor
+      roleFilter = { role: 'staff' };
+    }
+    // Professors: no restriction (see all)
+
+    const where: any = {
+      ...roleFilter,
+      ...(filterRole && viewer.role === 'professor' ? { role: filterRole } : {}),
+      ...(date ? { date } : {}),
+      ...(status ? { status } : {}),
+      ...(search ? {
+        OR: [
+          { user: { name: { contains: search, mode: 'insensitive' } } },
+          { user: { idNumber: { contains: search, mode: 'insensitive' } } },
+          { section: { contains: search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+
+    const records = await prisma.attendanceRecord.findMany({
+      where,
+      include: { user: { select: { name: true, idNumber: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.json({ records, total: records.length });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to fetch records' });
+  }
+});
+
+// ── Update Attendance Status ──────────────────────────────
+// PATCH /api/attendance/:id/status
+// Body: { status: 'present' | 'absent' | 'late' }
+// Access: professors only
+app.patch(
+  '/api/attendance/:id/status',
+  authMiddleware,
+  requireRole('professor'),
+  async (req: AuthRequest, res) => {
+    const { id } = req.params;
+    const { status } = req.body as { status: string };
+    if (!['present', 'absent', 'late'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    try {
+      const updated = await prisma.attendanceRecord.update({
+        where: { id },
+        data: { status: status as any },
+        include: { user: { select: { name: true, idNumber: true } } },
+      });
+      return res.json({ success: true, record: updated });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Failed to update status' });
+    }
+  }
+);
+
+// ── Attendance Stats ──────────────────────────────────────
+// GET /api/attendance/stats
+// Access: professors → all roles; staff → staff only; student → own only
+app.get('/api/attendance/stats', authMiddleware, async (req: AuthRequest, res) => {
+  const viewer = req.user!;
+  const today = new Date().toISOString().split('T')[0];
+  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().split('T')[0];
+
+  try {
+    let baseWhere: any = {};
+    if (viewer.role === 'student') baseWhere = { user: { idNumber: viewer.id } };
+    else if (viewer.role === 'staff') baseWhere = { role: 'staff' };
+
+    const [total, todayCount, weekCount, presentCount] = await Promise.all([
+      prisma.attendanceRecord.count({ where: baseWhere }),
+      prisma.attendanceRecord.count({ where: { ...baseWhere, date: today } }),
+      prisma.attendanceRecord.count({ where: { ...baseWhere, date: { gte: weekAgo } } }),
+      prisma.attendanceRecord.count({ where: { ...baseWhere, status: 'present' } }),
+    ]);
+
+    const presentRate = total > 0 ? Math.round((presentCount / total) * 100) : null;
+    return res.json({ total, today: todayCount, week: weekCount, presentRate });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ── Update Portal PIN (professor only) ───────────────────
+// PUT /api/admin/pin
+// Body: { role: 'staff' | 'professor', newPin: '0000' }
+app.put(
+  '/api/admin/pin',
+  authMiddleware,
+  requireRole('professor'),
+  async (req: AuthRequest, res) => {
+    const { role, newPin } = req.body as { role: string; newPin: string };
+    if (!['staff', 'professor'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role for PIN update' });
+    }
+    if (!newPin || newPin.length < 4) {
+      return res.status(400).json({ error: 'PIN must be at least 4 digits' });
+    }
+    try {
+      const pinHash = await bcrypt.hash(newPin, 12);
+      await prisma.portalPin.upsert({
+        where: { role: role as any },
+        update: { pinHash },
+        create: { role: role as any, pinHash },
+      });
+      return res.json({ success: true, message: `PIN updated for ${role}` });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Failed to update PIN' });
+    }
+  }
+);
+
+// ── Start Server ──────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`\n🎓 ICCT Attendance Backend running on http://localhost:${PORT}`);
+  console.log(`📋 Computer Studies Department`);
+  console.log(`🔗 Health: http://localhost:${PORT}/api/health\n`);
+});
+
+export default app;
+
+/* ─────────────────────────────────────────────────────────────
+   ICCT Attendance System — Global Styles (style.css)
+───────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --navy:    #0a1f44;
+  --navy2:   #112358;
+  --gold:    #f5c518;
+  --blue:    #1565c0;
+  --blue2:   #1976d2;
+  --green:   #15803d;
+  --green2:  #16a34a;
+  --orange:  #c2410c;
+  --orange2: #ea580c;
+  --red:     #dc2626;
+  --light:   #f4f6fb;
+  --white:   #ffffff;
+  --gray:    #64748b;
+  --lgray:   #e2e8f0;
+  --dgray:   #334155;
+  --shadow:  0 2px 12px rgba(10, 31, 68, 0.13);
+  --radius:  10px;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--light);
+  color: var(--dgray);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* ── Typography ───────────────────────────────────────────── */
+h1, h2, h3, h4 { color: var(--navy); font-weight: 700; }
+p { color: var(--gray); }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Form Elements ────────────────────────────────────────── */
+input, select, textarea, button {
+  font-family: inherit;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(21, 101, 192, 0.1);
+}
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--light); }
+::-webkit-scrollbar-thumb  { background: var(--lgray); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gray); }
+
+/* ── Utility ──────────────────────────────────────────────── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* ── Animations ───────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-8px); }
+  40%       { transform: translateX(8px); }
+  60%       { transform: translateX(-6px); }
+  80%       { transform: translateX(6px); }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes toastSlide {
+  from { opacity: 0; transform: translateY(24px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 680px) {
+  .hide-mobile { display: none !important; }
+}
+@media (max-width: 480px) {
+  .hide-small { display: none !important; }
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+@media print {
+  header, .no-print { display: none !important; }
+  body { background: white; }
+  table { font-size: 11px; }
+}
+
+{
+  "compilerOptions": {
+    "jsx": "react",
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*", "frontend/src/**/*"],
+  "exclude": ["node_modules", "dist", "frontend/node_modules"]
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — Shared Types (types.d.ts)
+// ─────────────────────────────────────────────────────────────
+
+export type Role = 'student' | 'staff' | 'professor';
+export type AttendanceStatus = 'present' | 'absent' | 'late';
+
+// ── API Payloads ────────────────────────────────────────────
+
+export interface CheckInPayload {
+  name: string;
+  idNumber: string;
+  role: Role;
+  section: string;
+  subject: string;
+  date: string;       // YYYY-MM-DD
+  qrToken?: string;
+}
+
+export interface CheckInResponse {
+  success: boolean;
+  record: AttendanceRecord;
+  sessionToken: string;
+}
+
+export interface PinVerifyPayload {
+  role: 'staff' | 'professor';
+  pin: string;
+}
+
+export interface PinVerifyResponse {
+  success: boolean;
+  accessToken: string;
+}
+
+export interface QrGenerateResponse {
+  token: string;
+  expiresAt: string;
+  expirySeconds: number;
+}
+
+export interface QrValidateResponse {
+  valid: boolean;
+  role?: Role;
+  expiresAt?: string;
+  reason?: string;
+}
+
+// ── Domain Models ───────────────────────────────────────────
+
+export interface User {
+  id: string;
+  name: string;
+  idNumber: string;
+  role: Role;
+  section?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  userId: string;
+  user: Pick<User, 'name' | 'idNumber'>;
+  role: Role;
+  section: string;
+  subject: string;
+  date: string;
+  timeIn: string;
+  status: AttendanceStatus;
+  qrToken?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AttendanceStats {
+  total: number;
+  today: number;
+  week: number;
+  presentRate: number | null;
+}
+
+// ── Frontend State ──────────────────────────────────────────
+
+export interface SessionUser {
+  id: string;
+  name: string;
+  role: Role;
+}
+
+export interface AppState {
+  page: 'role' | 'pin' | 'checkin' | 'dashboard';
+  currentRole: Role | null;
+  sessionUser: SessionUser | null;
+  sessionToken: string | null;
+}
+
+// ── Dashboard Filter ────────────────────────────────────────
+
+export interface DashboardFilter {
+  tab: 'all' | Role;
+  search: string;
+  status: AttendanceStatus | '';
+  date: string;
+}
+
+// ── Access Control Matrix ───────────────────────────────────
+//
+//  Role        | View Students | View Staff | View Professors | Mark Attendance
+//  ------------|---------------|------------|-----------------|----------------
+//  student     | own only      | ✗          | ✗               | ✗
+//  staff       | ✗             | all staff  | ✗               | ✗
+//  professor   | ✓ all         | ✓ all      | ✓ all           | ✓
+//
+export const ACCESS_MATRIX: Record<Role, {
+  canViewStudents: boolean | 'own';
+  canViewStaff: boolean;
+  canViewProfessors: boolean;
+  canMarkAttendance: boolean;
+  requiresPin: boolean;
+}> = {
+  student: {
+    canViewStudents: 'own',
+    canViewStaff: false,
+    canViewProfessors: false,
+    canMarkAttendance: false,
+    requiresPin: false,
+  },
+  staff: {
+    canViewStudents: false,
+    canViewStaff: true,
+    canViewProfessors: false,
+    canMarkAttendance: false,
+    requiresPin: true,
+  },
+  professor: {
+    canViewStudents: true,
+    canViewStaff: true,
+    canViewProfessors: true,
+    canMarkAttendance: true,
+    requiresPin: true,
+  },
+};
+
+# ─────────────────────────────────────────────────────────────
+#  ICCT Attendance System — Environment Variables
+#  Copy this file to .env and fill in your values
+# ─────────────────────────────────────────────────────────────
+
+# Server
+PORT=3001
+NODE_ENV=development
+
+# Database (PostgreSQL via Prisma)
+DATABASE_URL="postgresql://postgres:password@localhost:5432/icct_attendance?schema=public"
+
+# JWT Secret — change this to a long random string in production!
+JWT_SECRET=icct_csd_super_secret_jwt_key_change_me_in_production
+
+# JWT Expiry
+JWT_EXPIRES_IN=8h
+
+# CORS — frontend URL
+CORS_ORIGIN=http://localhost:5173
+
+# PIN codes for restricted portals (hashed in DB, these are defaults for seeding)
+STAFF_PIN=1234
+PROFESSOR_PIN=5678
+
+# QR Token expiry in seconds (1800 = 30 minutes)
+QR_EXPIRY_SECONDS=1800
+
+{
+  "app": {
+    "name": "ICCT Attendance Monitoring System",
+    "department": "Computer Studies Department",
+    "version": "1.0.0"
+  },
+  "server": {
+    "port": 3001,
+    "corsOrigin": "http://localhost:5173"
+  },
+  "auth": {
+    "jwtExpiresIn": "8h",
+    "pinMinLength": 4,
+    "bcryptSaltRounds": 12
+  },
+  "qr": {
+    "expirySeconds": 1800,
+    "warningThresholdSeconds": 300
+  },
+  "roles": ["student", "staff", "professor"],
+  "restrictedRoles": ["staff", "professor"],
+  "subjects": {
+    "student": [
+      "Programming Languages",
+      "Data Structures & Algorithms",
+      "Database Management Systems",
+      "Web Development",
+      "Computer Networks",
+      "Software Engineering",
+      "Operating Systems",
+      "Artificial Intelligence",
+      "Information Security",
+      "Systems Analysis & Design",
+      "Capstone Project",
+      "Other"
+    ],
+    "staff": [
+      "Office Administration",
+      "Records Management",
+      "IT Support / Helpdesk",
+      "Laboratory Maintenance",
+      "Student Services",
+      "Finance & Accounting",
+      "Facilities Management",
+      "Library Services",
+      "Enrollment Processing",
+      "General Staff Duty",
+      "Department Coordination",
+      "Other"
+    ],
+    "professor": [
+      "Programming Languages",
+      "Data Structures & Algorithms",
+      "Database Management Systems",
+      "Web Development",
+      "Computer Networks",
+      "Software Engineering",
+      "Operating Systems",
+      "Artificial Intelligence",
+      "Information Security",
+      "Research / Thesis Advisory",
+      "Faculty Meeting / Planning",
+      "Curriculum Development",
+      "Accreditation Work",
+      "Other"
+    ]
+  },
+  "access": {
+    "student": {
+      "canViewStudents": "own",
+      "canViewStaff": false,
+      "canViewProfessors": false,
+      "canMarkAttendance": false
+    },
+    "staff": {
+      "canViewStudents": false,
+      "canViewStaff": true,
+      "canViewProfessors": false,
+      "canMarkAttendance": false
+    },
+    "professor": {
+      "canViewStudents": true,
+      "canViewStaff": true,
+      "canViewProfessors": true,
+      "canMarkAttendance": true
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — Prisma Schema
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Roles ──────────────────────────────────────────────────
+enum Role {
+  student
+  staff
+  professor
+}
+
+// ── Attendance Status ───────────────────────────────────────
+enum AttendanceStatus {
+  present
+  absent
+  late
+}
+
+// ── User / Member ───────────────────────────────────────────
+model User {
+  id          String   @id @default(uuid())
+  name        String
+  idNumber    String   @unique  // student number / staff ID / faculty ID
+  role        Role
+  section     String?           // student section or department
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attendance  AttendanceRecord[]
+
+  @@map("users")
+}
+
+// ── Attendance Record ───────────────────────────────────────
+model AttendanceRecord {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role        Role
+  section     String
+  subject     String           // subject for students; work task for staff/professors
+  date        String           // stored as YYYY-MM-DD string
+  timeIn      String           // stored as HH:MM:SS string
+  status      AttendanceStatus @default(present)
+
+  // QR token snapshot (the token used when this check-in was submitted)
+  qrToken     String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("attendance_records")
+}
+
+// ── QR Token ────────────────────────────────────────────────
+// Tracks generated QR tokens and their expiry for validation
+model QrToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  role      Role
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("qr_tokens")
+}
+
+// ── Portal PIN (hashed) ─────────────────────────────────────
+// Stores the hashed PINs for staff and professor portals
+model PortalPin {
+  id        String   @id @default(uuid())
+  role      Role     @unique  // one PIN per role (staff / professor)
+  pinHash   String
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("portal_pins")
+}
+
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────
+#  ICCT Attendance System — Docker Compose
+#  Usage:
+#    docker-compose up -d          → start all services
+#    docker-compose down           → stop all services
+#    docker-compose logs -f api    → tail backend logs
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL Database ─────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: icct_attendance_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       icct_attendance
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql  # auto-runs on first start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend API ─────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: icct_attendance_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV:          production
+      PORT:              3001
+      DATABASE_URL:      postgresql://postgres:password@db:5432/icct_attendance?schema=public
+      JWT_SECRET:        ${JWT_SECRET:-icct_change_me_in_production}
+      JWT_EXPIRES_IN:    8h
+      CORS_ORIGIN:       http://localhost:5173
+      STAFF_PIN:         ${STAFF_PIN:-1234}
+      PROFESSOR_PIN:     ${PROFESSOR_PIN:-5678}
+      QR_EXPIRY_SECONDS: 1800
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+  # ── Frontend (Vite dev server) ──────────────────────────
+  frontend:
+    image: node:20-alpine
+    container_name: icct_attendance_frontend
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    depends_on:
+      - api
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    environment:
+      VITE_API_URL: http://localhost:3001
+
+volumes:
+  postgres_data:
+
+{
+  "vite": {
+    "plugins": ["@vitejs/plugin-react"],
+    "server": {
+      "port": 5173,
+      "proxy": {
+        "/api": {
+          "target": "http://localhost:3001",
+          "changeOrigin": true
+        }
+      }
+    },
+    "build": {
+      "outDir": "dist",
+      "sourcemap": true
+    }
+  },
+  "env": {
+    "VITE_API_URL": "http://localhost:3001"
+  },
+  "pages": {
+    "RoleSelectionPage": "Role picker — no auth required",
+    "PinGatePage":       "4-digit PIN pad — staff and professor only",
+    "CheckInPage":       "Check-in form + QR generator (30 min expiry)",
+    "DashboardPage":     "Attendance records, stats, mark attendance"
+  },
+  "accessMatrix": {
+    "student":   { "tabs": ["student (own only)"], "canMark": false },
+    "staff":     { "tabs": ["staff"],              "canMark": false },
+    "professor": { "tabs": ["all","student","staff","professor"], "canMark": true }
+  }
+}
+
+{
+  "name": "icct-attendance-backend",
+  "version": "1.0.0",
+  "description": "ICCT Colleges Attendance Monitoring System — Backend",
+  "main": "dist/src/.backend.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/.backend.ts",
+    "build": "tsc",
+    "start": "node dist/src/.backend.js",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:seed": "ts-node script.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/node": "^20.10.0",
+    "@types/uuid": "^9.0.7",
+    "prisma": "^5.7.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.2"
+  }
+}
+
+-- ─────────────────────────────────────────────────────────────
+--  ICCT Attendance System — Database Schema (PostgreSQL)
+--  Run this if you prefer raw SQL over Prisma migrations.
+-- ─────────────────────────────────────────────────────────────
+
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ── Enums ──────────────────────────────────────────────────
+CREATE TYPE role_enum AS ENUM ('student', 'staff', 'professor');
+CREATE TYPE attendance_status AS ENUM ('present', 'absent', 'late');
+
+-- ── Users ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id          UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name        VARCHAR(255)  NOT NULL,
+  id_number   VARCHAR(100)  UNIQUE NOT NULL,  -- student no / staff ID / faculty ID
+  role        role_enum     NOT NULL,
+  section     VARCHAR(100),                   -- section or department
+  created_at  TIMESTAMP     NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
+-- ── Attendance Records ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS attendance_records (
+  id          UUID              PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID              NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role        role_enum         NOT NULL,
+  section     VARCHAR(100)      NOT NULL,
+  subject     VARCHAR(255)      NOT NULL,  -- subject or work task
+  date        VARCHAR(10)       NOT NULL,  -- YYYY-MM-DD
+  time_in     VARCHAR(8)        NOT NULL,  -- HH:MM:SS
+  status      attendance_status NOT NULL DEFAULT 'present',
+  qr_token    VARCHAR(255),
+  created_at  TIMESTAMP         NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMP         NOT NULL DEFAULT NOW()
+);
+
+-- ── QR Tokens ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS qr_tokens (
+  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  token       VARCHAR(255) UNIQUE NOT NULL,
+  role        role_enum   NOT NULL,
+  expires_at  TIMESTAMP   NOT NULL,
+  used        BOOLEAN     NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMP   NOT NULL DEFAULT NOW()
+);
+
+-- ── Portal PINs (hashed) ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS portal_pins (
+  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  role        role_enum   UNIQUE NOT NULL,
+  pin_hash    VARCHAR(255) NOT NULL,
+  updated_at  TIMESTAMP   NOT NULL DEFAULT NOW(),
+  created_at  TIMESTAMP   NOT NULL DEFAULT NOW()
+);
+
+-- ── Indexes ─────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_attendance_user    ON attendance_records(user_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_date    ON attendance_records(date);
+CREATE INDEX IF NOT EXISTS idx_attendance_role    ON attendance_records(role);
+CREATE INDEX IF NOT EXISTS idx_qr_token_token     ON qr_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_qr_token_expires   ON qr_tokens(expires_at);
+
+-- ── Auto-update updated_at ──────────────────────────────────
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_users_updated_at
+  BEFORE UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER trg_attendance_updated_at
+  BEFORE UPDATE ON attendance_records
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER trg_portal_pins_updated_at
+  BEFORE UPDATE ON portal_pins
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+// ─────────────────────────────────────────────────────────────
+//  ICCT Attendance System — Database Seeder (script.js)
+//  Run: node script.js
+//  Seeds the initial PIN hashes for staff and professor portals
+// ─────────────────────────────────────────────────────────────
+
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
+require('dotenv').config();
+
+const prisma = new PrismaClient();
+
+const STAFF_PIN     = process.env.STAFF_PIN     || '1234';
+const PROFESSOR_PIN = process.env.PROFESSOR_PIN || '5678';
+const SALT_ROUNDS   = 12;
+
+async function seed() {
+  console.log('\n🌱 Seeding ICCT Attendance database...\n');
+
+  // ── Seed Portal PINs ──────────────────────────────────────
+  const staffHash = await bcrypt.hash(STAFF_PIN, SALT_ROUNDS);
+  const profHash  = await bcrypt.hash(PROFESSOR_PIN, SALT_ROUNDS);
+
+  const staffPin = await prisma.portalPin.upsert({
+    where:  { role: 'staff' },
+    update: { pinHash: staffHash },
+    create: { role: 'staff', pinHash: staffHash },
+  });
+  console.log(`✅ Staff PIN seeded     (role: ${staffPin.role})`);
+
+  const profPin = await prisma.portalPin.upsert({
+    where:  { role: 'professor' },
+    update: { pinHash: profHash },
+    create: { role: 'professor', pinHash: profHash },
+  });
+  console.log(`✅ Professor PIN seeded (role: ${profPin.role})`);
+
+  // ── Seed Sample Users (optional, for dev testing) ─────────
+  if (process.env.NODE_ENV === 'development') {
+    console.log('\n📋 Seeding sample users for development...');
+
+    const sampleUsers = [
+      { name: 'Juan dela Cruz',  idNumber: '2024-00001', role: 'student',   section: 'BSIT-3A' },
+      { name: 'Maria Santos',    idNumber: 'STAFF-001',  role: 'staff',     section: 'Admin Office' },
+      { name: 'Dr. Ana Reyes',   idNumber: 'FAC-001',    role: 'professor', section: 'CS Dept.' },
+    ];
+
+    for (const u of sampleUsers) {
+      const user = await prisma.user.upsert({
+        where:  { idNumber: u.idNumber },
+        update: {},
+        create: { name: u.name, idNumber: u.idNumber, role: u.role, section: u.section },
+      });
+      console.log(`  👤 ${user.role.padEnd(9)} → ${user.name} (${user.idNumber})`);
+    }
+  }
+
+  console.log('\n🎓 Seeding complete!\n');
+  console.log('─────────────────────────────────────────────');
+  console.log('  Default PINs (change in production!):');
+  console.log(`  Staff PIN:     ${STAFF_PIN}`);
+  console.log(`  Professor PIN: ${PROFESSOR_PIN}`);
+  console.log('─────────────────────────────────────────────\n');
+}
+
+seed()
+  .catch((err) => { console.error('❌ Seed failed:', err); process.exit(1); })
+  .finally(() => prisma.$disconnect());
